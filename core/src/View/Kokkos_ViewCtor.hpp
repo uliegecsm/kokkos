@@ -106,14 +106,12 @@ struct ViewCtorProp<std::enable_if_t<std::is_same_v<P, AllowPadding_t> ||
 /* Map input label type to std::string */
 template <typename Label>
 struct ViewCtorProp<std::enable_if_t<is_view_label<Label>::value>, Label> {
-  ViewCtorProp()                                = default;
-  ViewCtorProp(const ViewCtorProp &)            = default;
-  ViewCtorProp &operator=(const ViewCtorProp &) = default;
+  ViewCtorProp() = default;
 
   using type = std::string;
 
   ViewCtorProp(const type &arg) : value(arg) {}
-  ViewCtorProp(type &&arg) : value(arg) {}
+  ViewCtorProp(type &&arg) : value(std::move(arg)) {}
 
   type value;
 };
@@ -213,11 +211,12 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   using execution_space = typename var_execution_space::type;
   using pointer_type    = typename var_pointer::type;
 
-  /*  Copy from a matching argument list.
-   *  Requires  std::is_same< P , ViewCtorProp< void , Args >::value ...
-   */
+  ViewCtorProp() = default;
+
+  //! Construct from a matching argument list.
   template <typename... Args>
-  inline ViewCtorProp(Args const &...args) : ViewCtorProp<void, P>(args)... {}
+  ViewCtorProp(Args &&...args)
+      : ViewCtorProp<void, P>(std::forward<Args>(args))... {}
 
   template <typename... Args>
   KOKKOS_FUNCTION ViewCtorProp(pointer_type arg0, Args const &...args)
@@ -234,13 +233,14 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   // of confused. To work around this, we just use a couple of alias templates
   // that amount to the same thing.
   template <typename... Args>
-  ViewCtorProp(view_ctor_prop_args<Args...> const &arg)
+  ViewCtorProp([[maybe_unused]] view_ctor_prop_args<Args...> const &arg)
       : view_ctor_prop_base<Args>(
-            static_cast<view_ctor_prop_base<Args> const &>(arg))... {
-    // Suppress an unused argument warning that (at least at one point) would
-    // show up if sizeof...(Args) == 0
-    (void)arg;
-  }
+            static_cast<view_ctor_prop_base<Args> const &>(arg))... {}
+
+  template <typename... Args>
+  ViewCtorProp(view_ctor_prop_args<Args...> &&arg)
+      : view_ctor_prop_base<Args>(
+            static_cast<view_ctor_prop_base<Args> &&>(arg))... {}
 };
 
 #if !defined(KOKKOS_COMPILER_MSVC) || !defined(KOKKOS_COMPILER_NVCC)
