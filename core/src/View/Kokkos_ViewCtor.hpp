@@ -81,7 +81,7 @@ struct ViewCtorProp<void, CommonViewAllocProp<Specialize, T>> {
   KOKKOS_FUNCTION
   ViewCtorProp(const type &arg) : value(arg) {}
   KOKKOS_FUNCTION
-  ViewCtorProp(type &&arg) : value(arg) {}
+  ViewCtorProp(type &&arg) : value(std::move(arg)) {}
 
   type value;
 };
@@ -106,7 +106,9 @@ struct ViewCtorProp<std::enable_if_t<std::is_same_v<P, AllowPadding_t> ||
 /* Map input label type to std::string */
 template <typename Label>
 struct ViewCtorProp<std::enable_if_t<is_view_label<Label>::value>, Label> {
-  ViewCtorProp() = default;
+  ViewCtorProp()                                = default;
+  ViewCtorProp(const ViewCtorProp &)            = default;
+  ViewCtorProp &operator=(const ViewCtorProp &) = default;
 
   using type = std::string;
 
@@ -210,12 +212,12 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   using memory_space    = typename var_memory_space::type;
   using execution_space = typename var_execution_space::type;
   using pointer_type    = typename var_pointer::type;
-
-  ViewCtorProp() = default;
-
+  
   //! Construct from a matching argument list.
-  template <typename... Args>
-  ViewCtorProp(Args &&...args)
+  template <typename... Args,
+            typename = std::enable_if_t<std::conjunction_v<
+                std::is_same<P, typename ViewCtorProp<void, Kokkos::Impl::remove_cvref_t<Args>>::type>...>>>
+  explicit ViewCtorProp(Args&&...args)
       : ViewCtorProp<void, P>(std::forward<Args>(args))... {}
 
   template <typename... Args>
@@ -233,14 +235,11 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   // of confused. To work around this, we just use a couple of alias templates
   // that amount to the same thing.
   template <typename... Args>
-  ViewCtorProp([[maybe_unused]] view_ctor_prop_args<Args...> const &arg)
+  ViewCtorProp(view_ctor_prop_args<Args...> const &arg)
       : view_ctor_prop_base<Args>(
             static_cast<view_ctor_prop_base<Args> const &>(arg))... {}
 
-  template <typename... Args>
-  ViewCtorProp(view_ctor_prop_args<Args...> &&arg)
-      : view_ctor_prop_base<Args>(
-            static_cast<view_ctor_prop_base<Args> &&>(arg))... {}
+  //ViewCtorProp(view_ctor_prop_args<> const &) {}
 };
 
 #if !defined(KOKKOS_COMPILER_MSVC) || !defined(KOKKOS_COMPILER_NVCC)
@@ -454,15 +453,14 @@ inline constexpr Kokkos::Impl::AllowPadding_t AllowPadding{};
  * alignment
  */
 template <class... Args>
-inline Impl::ViewCtorProp<typename Impl::ViewCtorProp<void, Args>::type...>
-view_alloc(Args const &...args) {
+auto view_alloc(Args&&...args) {
   using return_type =
-      Impl::ViewCtorProp<typename Impl::ViewCtorProp<void, Args>::type...>;
+      Impl::ViewCtorProp<typename Impl::ViewCtorProp<void, Kokkos::Impl::remove_cvref_t<Args>>::type...>;
 
   static_assert(!return_type::has_pointer,
                 "Cannot give pointer-to-memory for view allocation");
 
-  return return_type(args...);
+  return return_type(std::forward<Args>(args)...);
 }
 
 template <class... Args>
