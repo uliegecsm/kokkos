@@ -18,7 +18,7 @@
 
 #include <Kokkos_Core.hpp>
 
-namespace Test {
+namespace {
 
 // Check Kokkos::Impl::is_view_label.
 TEST(TEST_CATEGORY, is_view_label) {
@@ -28,17 +28,29 @@ TEST(TEST_CATEGORY, is_view_label) {
   static_assert(Kokkos::Impl::is_view_label<const char[N]>::value);
   static_assert(Kokkos::Impl::is_view_label<char[N]>::value);
 
+  // A char* is not a label. Thus, a label is distinguished from a pointer type.
   static_assert(!Kokkos::Impl::is_view_label<char*>::value);
 }
 
-// Check traits of Kokkos::Impl::ViewCtorProp<void, std::string>.
+// Check traits of Kokkos::Impl::ViewCtorProp<>.
+TEST(TEST_CATEGORY, vcp_empty_traits) {
+  using vcp_empty_t = Kokkos::Impl::ViewCtorProp<>;
+
+  // Check that the empty view constructor properties class is default
+  // constructible. This is needed for calls of Kokkos::view_alloc().
+  static_assert(std::is_default_constructible_v<vcp_empty_t>);
+
+  static_assert(std::is_same_v<decltype(Kokkos::view_alloc()), vcp_empty_t>);
+}
+
+// Check traits of base class Kokkos::Impl::ViewCtorProp<void, std::string>.
 TEST(TEST_CATEGORY, vcp_label_base_traits) {
   using vcp_label_base_t = Kokkos::Impl::ViewCtorProp<void, std::string>;
 
   static_assert(std::is_same_v<typename vcp_label_base_t::type, std::string>);
 
   // Check that the base class is default constructible. The default constructor
-  // may be called by the copy constructor of the derived class, such as when
+  // may be called by the copy constructor of deriveded classes, such as when
   // copy constructing a view constructor properties object from another view
   // constructor properties object that holds fewer properties.
   static_assert(std::is_default_constructible_v<vcp_label_base_t>);
@@ -54,7 +66,7 @@ TEST(TEST_CATEGORY, vcp_label_base_traits) {
   static_assert(std::is_constructible_v<vcp_label_base_t, char*>);
 }
 
-// Check traits of Kokkos::Impl::ViewCtorProp<std::string>.
+// Check traits of derived class Kokkos::Impl::ViewCtorProp<std::string>.
 TEST(TEST_CATEGORY, vcp_label_traits) {
   using vcp_label_base_t = Kokkos::Impl::ViewCtorProp<void, std::string>;
   using vcp_label_t      = Kokkos::Impl::ViewCtorProp<std::string>;
@@ -75,10 +87,7 @@ TEST(TEST_CATEGORY, vcp_label_traits) {
   static_assert(std::is_constructible_v<vcp_label_t, const char[N]>);
   static_assert(std::is_constructible_v<vcp_label_t, char[N]>);
 
-  // Kokkos::Impl::ViewCtorProp<std::string> cannot be constructed from
-  // a `char*` because `char*` does not satisfy `Kokkos::Impl::is_view_label`,
-  // hence the constructor cannot access the type alias `type`.
-  static_assert(!std::is_constructible_v<vcp_label_t, char*>);
+  static_assert(std::is_constructible_v<vcp_label_t, char*>);
 }
 
 // Check that the constructor of Kokkos::Impl::ViewCtorProp<std::string>
@@ -106,4 +115,31 @@ TEST(TEST_CATEGORY, vcp_label_view_alloc_can_move) {
             "our label");
 }
 
-}  // namespace Test
+// Check the copy constructor of Kokkos::Impl::ViewCtorProp<std::string>.
+TEST(TEST_CATEGORY, vcp_label_copy_constructor) {
+  using vcp_empty_t = Kokkos::Impl::ViewCtorProp<>;
+  using vcp_label_t = Kokkos::Impl::ViewCtorProp<std::string>;
+
+  // Copy construction from an empty view constructor properties object.
+  static_assert(std::is_constructible_v<vcp_label_t, const vcp_empty_t&>);
+
+  vcp_empty_t prop_empty;
+  vcp_label_t prop_empty_copy(prop_empty);
+
+  ASSERT_TRUE(
+      Kokkos::Impl::get_property<Kokkos::Impl::LabelTag>(prop_empty_copy)
+          .empty());
+
+  // Copy construction from a view constructor properties object with a label.
+  static_assert(std::is_copy_constructible_v<vcp_label_t>);
+
+  auto prop = Kokkos::view_alloc("our label");
+  vcp_label_t prop_copy(prop);
+
+  ASSERT_EQ(Kokkos::Impl::get_property<Kokkos::Impl::LabelTag>(prop),
+            "our label");
+  ASSERT_EQ(Kokkos::Impl::get_property<Kokkos::Impl::LabelTag>(prop_copy),
+            "our label");
+}
+
+}  // namespace

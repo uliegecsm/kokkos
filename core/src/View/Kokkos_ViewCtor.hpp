@@ -81,7 +81,7 @@ struct ViewCtorProp<void, CommonViewAllocProp<Specialize, T>> {
   KOKKOS_FUNCTION
   ViewCtorProp(const type &arg) : value(arg) {}
   KOKKOS_FUNCTION
-  ViewCtorProp(type &&arg) : value(std::move(arg)) {}
+  ViewCtorProp(type &&arg) : value(arg) {}
 
   type value;
 };
@@ -212,12 +212,16 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   using memory_space    = typename var_memory_space::type;
   using execution_space = typename var_execution_space::type;
   using pointer_type    = typename var_pointer::type;
-  
-  //! Construct from a matching argument list.
+
+  // Construct from a matching argument list.
+  //
+  // Note that if P is empty, this constructor is the default constructor.
+  // On the other hand, if P is not empty, the constraint ensures that
+  // the default constructor cannot be called.
   template <typename... Args,
             typename = std::enable_if_t<std::conjunction_v<
-                std::is_same<P, typename ViewCtorProp<void, Kokkos::Impl::remove_cvref_t<Args>>::type>...>>>
-  explicit ViewCtorProp(Args&&...args)
+                std::is_constructible<ViewCtorProp<void, P>, Args &&>...>>>
+  ViewCtorProp(Args &&...args)
       : ViewCtorProp<void, P>(std::forward<Args>(args))... {}
 
   template <typename... Args>
@@ -237,9 +241,11 @@ struct ViewCtorProp : public ViewCtorProp<void, P>... {
   template <typename... Args>
   ViewCtorProp(view_ctor_prop_args<Args...> const &arg)
       : view_ctor_prop_base<Args>(
-            static_cast<view_ctor_prop_base<Args> const &>(arg))... {}
-
-  //ViewCtorProp(view_ctor_prop_args<> const &) {}
+            static_cast<view_ctor_prop_base<Args> const &>(arg))... {
+    // Suppress an unused argument warning that (at least at one point) would
+    // show up if sizeof...(Args) == 0
+    (void)arg;
+  }
 };
 
 #if !defined(KOKKOS_COMPILER_MSVC) || !defined(KOKKOS_COMPILER_NVCC)
@@ -453,9 +459,9 @@ inline constexpr Kokkos::Impl::AllowPadding_t AllowPadding{};
  * alignment
  */
 template <class... Args>
-auto view_alloc(Args&&...args) {
-  using return_type =
-      Impl::ViewCtorProp<typename Impl::ViewCtorProp<void, Kokkos::Impl::remove_cvref_t<Args>>::type...>;
+auto view_alloc(Args &&...args) {
+  using return_type = Impl::ViewCtorProp<typename Impl::ViewCtorProp<
+      void, Kokkos::Impl::remove_cvref_t<Args>>::type...>;
 
   static_assert(!return_type::has_pointer,
                 "Cannot give pointer-to-memory for view allocation");
